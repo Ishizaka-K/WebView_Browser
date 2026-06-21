@@ -69,22 +69,46 @@ class DefaultDownloadEngine @Inject constructor(
     }
 
     override suspend fun pause(id: String) {
-        DownloadService.start(context, DownloadService.ACTION_PAUSE, id)
+        val status = repository.get(id)?.status ?: return
+        if (DownloadTransitionPolicy.canPause(status)) {
+            DownloadService.start(context, DownloadService.ACTION_PAUSE, id)
+        }
     }
 
     override suspend fun resume(id: String) {
+        val status = repository.get(id)?.status ?: return
+        if (!DownloadTransitionPolicy.canResume(status)) return
         repository.updateStatus(id, DownloadStatus.QUEUED)
         DownloadService.start(context, DownloadService.ACTION_START)
     }
 
     override suspend fun cancel(id: String) {
-        DownloadService.start(context, DownloadService.ACTION_CANCEL, id)
+        val status = repository.get(id)?.status ?: return
+        if (DownloadTransitionPolicy.canCancel(status)) {
+            DownloadService.start(context, DownloadService.ACTION_CANCEL, id)
+        }
     }
 
     override suspend fun retry(id: String) {
+        val status = repository.get(id)?.status ?: return
+        if (!DownloadTransitionPolicy.canRetry(status)) return
         repository.updateStatus(id, DownloadStatus.QUEUED)
         DownloadService.start(context, DownloadService.ACTION_START)
     }
 
     override fun observeAll(): Flow<List<DownloadProgress>> = repository.observeAll()
+}
+
+/** UI・通知の古い操作が完了済みデータを巻き戻さないための状態遷移規則。 */
+internal object DownloadTransitionPolicy {
+    fun canPause(status: DownloadStatus): Boolean =
+        status == DownloadStatus.RUNNING || status == DownloadStatus.QUEUED
+
+    fun canResume(status: DownloadStatus): Boolean = status == DownloadStatus.PAUSED
+
+    fun canRetry(status: DownloadStatus): Boolean =
+        status == DownloadStatus.FAILED || status == DownloadStatus.CANCELED
+
+    fun canCancel(status: DownloadStatus): Boolean =
+        status == DownloadStatus.RUNNING || status == DownloadStatus.QUEUED || status == DownloadStatus.PAUSED
 }

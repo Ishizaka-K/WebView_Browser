@@ -27,6 +27,8 @@ data class DownloadProgress(
     val downloadedBytes: Long,
     val status: DownloadStatus,
     val savedUri: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
 ) {
     val percent: Int
         get() = if (totalBytes > 0) ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100) else 0

@@ -71,6 +71,7 @@ sealed interface BrowserIntent : MviIntent {
     data class ReceivedError(val tabId: String, val isForMainFrame: Boolean) : BrowserIntent
     data class RenderProcessGone(val tabId: String) : BrowserIntent
     data class DownloadRequested(val event: WebViewDownloadEvent) : BrowserIntent
+    data class OpenExternalUrl(val tabId: String, val url: String) : BrowserIntent
 }
 
 /** 1 回限りの副作用。 */
@@ -78,4 +79,5 @@ sealed interface BrowserEffect : MviEffect {
     data class RequestDownload(val event: WebViewDownloadEvent) : BrowserEffect
     data class ShareUrl(val url: String, val title: String?) : BrowserEffect
     data class ShowMessage(val message: String) : BrowserEffect
+    data class OpenExternalUrl(val url: String) : BrowserEffect
 }

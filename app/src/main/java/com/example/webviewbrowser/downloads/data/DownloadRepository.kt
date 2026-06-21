@@ -45,5 +45,7 @@ class DownloadRepository @Inject constructor(
         downloadedBytes = downloadedBytes,
         status = status,
         savedUri = savedUri,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
     )
 }

@@ -4,21 +4,29 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.net.Uri
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
@@ -50,6 +58,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
 import com.example.webviewbrowser.browser.webview.WebViewCapture
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -60,6 +70,8 @@ import com.example.webviewbrowser.browser.BrowserEffect
 import com.example.webviewbrowser.browser.BrowserIntent
 import com.example.webviewbrowser.browser.BrowserViewModel
 import com.example.webviewbrowser.home.ui.HomeScreen
+import com.example.webviewbrowser.core.ui.AppBackground
+import com.example.webviewbrowser.core.ui.appSurface
 import com.example.webviewbrowser.settings.SettingsViewModel
 import com.example.webviewbrowser.settings.WebSettingsApplier
 import com.example.webviewbrowser.tabs.ui.TabsSheet
@@ -87,6 +99,7 @@ fun BrowserScreen(
     var showTabs by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     val omniboxFocus = remember { FocusRequester() }
+    val layoutMode = BrowserLayoutPolicy.forWidthDp(LocalConfiguration.current.screenWidthDp)
 
     fun openTabs() {
         val tab = state.activeTab
@@ -117,6 +130,15 @@ fun BrowserScreen(
                 is BrowserEffect.RequestDownload -> scope.launch {
                     snackbarHostState.showSnackbar("ダウンロード要求: ${effect.event.url}")
                 }
+                is BrowserEffect.OpenExternalUrl -> {
+                    val intent = runCatching { effect.url.toExternalIntent() }.getOrNull()
+                    val opened = intent != null && runCatching {
+                        context.startActivity(intent)
+                    }.isSuccess
+                    if (!opened) {
+                        scope.launch { snackbarHostState.showSnackbar("このリンクを開けるアプリがありません") }
+                    }
+                }
             }
         }
     }
@@ -137,16 +159,30 @@ fun BrowserScreen(
         contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            if (state.find.active) {
-                FindInPageBar(
-                    state = state.find,
-                    onQueryChange = { viewModel.onIntent(BrowserIntent.FindQueryChanged(it)) },
-                    onNext = { viewModel.onIntent(BrowserIntent.FindNext(true)) },
-                    onPrev = { viewModel.onIntent(BrowserIntent.FindNext(false)) },
-                    onClose = { viewModel.onIntent(BrowserIntent.ToggleFind(false)) },
+            Column {
+                AdaptiveBrowserChrome(
+                    widthDp = LocalConfiguration.current.screenWidthDp,
+                    phoneContent = {},
+                    tabletContent = {
+                        TabletTabStrip(
+                            tabs = state.tabs,
+                            activeTabId = state.activeTabId,
+                            onSwitch = { viewModel.onIntent(BrowserIntent.SwitchTab(it)) },
+                            onClose = { viewModel.onIntent(BrowserIntent.CloseTab(it)) },
+                            onNewTab = { viewModel.onIntent(BrowserIntent.NewTab()) },
+                        )
+                    },
                 )
-            } else {
-                BrowserTopBar(
+                if (state.find.active) {
+                    FindInPageBar(
+                        state = state.find,
+                        onQueryChange = { viewModel.onIntent(BrowserIntent.FindQueryChanged(it)) },
+                        onNext = { viewModel.onIntent(BrowserIntent.FindNext(true)) },
+                        onPrev = { viewModel.onIntent(BrowserIntent.FindNext(false)) },
+                        onClose = { viewModel.onIntent(BrowserIntent.ToggleFind(false)) },
+                    )
+                } else {
+                    BrowserTopBar(
                     text = state.addressInput,
                     isLoading = activeTab?.isLoading == true,
                     progress = activeTab?.progress ?: 0,
@@ -175,11 +211,13 @@ fun BrowserScreen(
                     onOpenHistory = onOpenHistory,
                     onOpenDownloads = onOpenDownloads,
                     onOpenSettings = onOpenSettings,
+                    layoutMode = layoutMode,
                 )
+                }
             }
         },
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+        AppBackground(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (activeTab == null || activeTab.isHome) {
                 HomeScreen(
                     onOpenUrl = { viewModel.onIntent(BrowserIntent.SubmitAddress(it)) },
@@ -193,9 +231,13 @@ fun BrowserScreen(
                     update = { container ->
                         val webView = viewModel.acquireWebView(activeTabId)
                         WebSettingsApplier.apply(webView, appSettings)
-                        (webView.parent as? ViewGroup)?.removeView(webView)
-                        container.removeAllViews()
-                        container.addView(webView)
+                        // progress/title 更新のたびに同じ WebView を付け直すと、ちらつきや
+                        // フォーカス喪失が起きる。タブが変わったときだけ差し替える。
+                        if (webView.parent !== container) {
+                            (webView.parent as? ViewGroup)?.removeView(webView)
+                            container.removeAllViews()
+                            container.addView(webView)
+                        }
                     },
                     onRelease = { container -> container.removeAllViews() },
                 )
@@ -245,6 +287,7 @@ private fun BrowserTopBar(
     onOpenHistory: () -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenSettings: () -> Unit,
+    layoutMode: BrowserLayoutMode,
 ) {
     AddressBar(
         text = text,
@@ -255,8 +298,18 @@ private fun BrowserTopBar(
         onReloadOrStop = onReloadOrStop,
         focusRequester = focusRequester,
         trailingMenu = {
+            if (layoutMode == BrowserLayoutMode.TABLET) {
+                IconButton(onClick = onBack, enabled = canGoBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
+                }
+                IconButton(onClick = onForward, enabled = canGoForward) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "進む")
+                }
+            }
             IconButton(onClick = onHome) { Icon(Icons.Default.Home, contentDescription = "ホーム") }
-            TabCountButton(count = tabCount, onClick = onShowTabs)
+            if (layoutMode == BrowserLayoutMode.PHONE) {
+                TabCountButton(count = tabCount, onClick = onShowTabs)
+            }
             Box {
                 IconButton(onClick = { onMenuToggle(true) }) {
                     Icon(Icons.Default.MoreVert, contentDescription = "メニュー")
@@ -322,6 +375,73 @@ private fun BrowserTopBar(
     )
 }
 
+internal enum class BrowserLayoutMode { PHONE, TABLET }
+
+internal object BrowserLayoutPolicy {
+    const val TABLET_MIN_WIDTH_DP = 600
+
+    fun forWidthDp(widthDp: Int): BrowserLayoutMode =
+        if (widthDp >= TABLET_MIN_WIDTH_DP) BrowserLayoutMode.TABLET else BrowserLayoutMode.PHONE
+}
+
+/** ウィンドウ幅の変化に追従してスマートフォン/タブレットUIを切り替える境界。 */
+@Composable
+internal fun AdaptiveBrowserChrome(
+    widthDp: Int,
+    phoneContent: @Composable () -> Unit,
+    tabletContent: @Composable () -> Unit,
+) {
+    val mode = BrowserLayoutPolicy.forWidthDp(widthDp)
+    Box(modifier = Modifier.testTag(if (mode == BrowserLayoutMode.TABLET) "tablet-layout" else "phone-layout")) {
+        if (mode == BrowserLayoutMode.TABLET) tabletContent() else phoneContent()
+    }
+}
+
+@Composable
+private fun TabletTabStrip(
+    tabs: List<com.example.webviewbrowser.browser.TabUiState>,
+    activeTabId: String?,
+    onSwitch: (String) -> Unit,
+    onClose: (String) -> Unit,
+    onNewTab: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("tablet-tab-strip")
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        tabs.forEach { tab ->
+            val selected = tab.id == activeTabId
+            Row(
+                modifier = Modifier
+                    .widthIn(min = 140.dp, max = 220.dp)
+                    .appSurface(RoundedCornerShape(14.dp), selected = selected)
+                    .clickable { onSwitch(tab.id) }
+                    .padding(start = 12.dp, end = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = tab.title.ifBlank { if (tab.isHome) "ホーム" else tab.url },
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                )
+                IconButton(onClick = { onClose(tab.id) }, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "タブを閉じる", modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+        IconButton(onClick = onNewTab) {
+            Icon(Icons.Default.Add, contentDescription = "新しいタブ")
+        }
+    }
+}
+
 @Composable
 private fun TabCountButton(count: Int, onClick: () -> Unit) {
     IconButton(onClick = onClick) {
@@ -346,4 +466,17 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null
+}
+
+private fun String.toExternalIntent(): Intent {
+    val intent = if (startsWith("intent:", ignoreCase = true)) {
+        Intent.parseUri(this, Intent.URI_INTENT_SCHEME)
+    } else {
+        Intent(Intent.ACTION_VIEW, Uri.parse(this))
+    }
+    // intent: URL に埋め込まれた明示 component/selector は受け入れない。
+    intent.addCategory(Intent.CATEGORY_BROWSABLE)
+    intent.component = null
+    intent.selector = null
+    return intent
 }

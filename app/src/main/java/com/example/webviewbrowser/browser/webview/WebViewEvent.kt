@@ -80,4 +80,11 @@ sealed interface WebViewEvent {
         override val generation: Int,
         val event: WebViewDownloadEvent,
     ) : WebViewEvent
+
+    /** WebView では処理できない外部アプリ向け URL。 */
+    data class ExternalNavigationRequested(
+        override val tabId: String,
+        override val generation: Int,
+        val url: String,
+    ) : WebViewEvent
 }

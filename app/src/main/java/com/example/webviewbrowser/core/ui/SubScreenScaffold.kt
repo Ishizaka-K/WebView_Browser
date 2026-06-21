@@ -34,6 +34,7 @@ fun SubScreenScaffold(
 ) {
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text(title) },
@@ -48,7 +49,7 @@ fun SubScreenScaffold(
                 ),
             )
         },
-        content = content,
+        content = { padding -> AppBackground { content(padding) } },
     )
 }
 

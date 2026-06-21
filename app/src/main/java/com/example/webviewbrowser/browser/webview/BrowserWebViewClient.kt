@@ -6,6 +6,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import java.net.URI
 
 /**
  * ページ遷移・エラー・レンダラ消失を [WebViewEvent] として通知する WebViewClient。
@@ -17,6 +18,18 @@ class BrowserWebViewClient(
     private val generationProvider: () -> Int,
     private val emit: (WebViewEvent) -> Unit,
 ) : WebViewClient() {
+
+    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+        if (!request.isForMainFrame) return false
+        val url = request.url.toString()
+        if (WebNavigationPolicy.canLoadInWebView(url)) return false
+
+        // 自動遷移から外部アプリを起動させない。ユーザー操作起点だけ UI 層へ渡す。
+        if (request.hasGesture()) {
+            emit(WebViewEvent.ExternalNavigationRequested(tabId, generationProvider(), url))
+        }
+        return true
+    }
 
     override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
         emit(WebViewEvent.PageStarted(tabId, generationProvider(), url.orEmpty()))
@@ -79,5 +92,15 @@ class BrowserWebViewClient(
         // true を返してプロセスを引き取り、アプリ全体のクラッシュを防ぐ。
         // 利用側がタブを再生成する。
         return true
+    }
+}
+
+/** WebView 内で扱う URL と外部アプリへ委譲する URL を分類する。 */
+internal object WebNavigationPolicy {
+    private val webViewSchemes = setOf("http", "https", "about", "data", "blob", "javascript")
+
+    fun canLoadInWebView(url: String): Boolean {
+        val scheme = runCatching { URI(url).scheme?.lowercase() }.getOrNull()
+        return scheme == null || scheme in webViewSchemes
     }
 }

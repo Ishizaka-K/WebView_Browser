@@ -108,6 +108,11 @@ class BrowserViewModel @Inject constructor(
                     emitEffect(BrowserEffect.ShowMessage("ダウンロードを開始しました: ${request.fileName}"))
                 }
             }
+            is BrowserIntent.OpenExternalUrl -> {
+                if (intent.tabId == currentState.activeTabId) {
+                    emitEffect(BrowserEffect.OpenExternalUrl(intent.url))
+                }
+            }
         }
     }
 
@@ -118,6 +123,7 @@ class BrowserViewModel @Inject constructor(
     }
 
     private fun submitAddress(text: String) {
+        if (text.isBlank()) return
         val tabId = currentState.activeTabId ?: return
         val template = SearchEngines.templateFor(settings.value.searchEngineId)
         val url = when (val target = UrlNormalizer.normalize(text, template)) {
@@ -268,6 +274,7 @@ class BrowserViewModel @Inject constructor(
         is WebViewEvent.ReceivedError -> BrowserIntent.ReceivedError(tabId, isForMainFrame)
         is WebViewEvent.RenderProcessGone -> BrowserIntent.RenderProcessGone(tabId)
         is WebViewEvent.DownloadRequested -> BrowserIntent.DownloadRequested(event)
+        is WebViewEvent.ExternalNavigationRequested -> BrowserIntent.OpenExternalUrl(tabId, url)
         is WebViewEvent.FindResult -> BrowserIntent.FindResult(tabId, activeMatchIndex, matchCount)
     }
 }

@@ -71,7 +71,10 @@ fun TabsSheet(
     var draggedIndex by remember { mutableIntStateOf(-1) }
     var dragPosition by remember { mutableStateOf<Offset?>(null) }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.surface,
+    ) {
         Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),

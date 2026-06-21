@@ -2,6 +2,7 @@ package com.example.webviewbrowser.navigation
 
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -26,6 +27,8 @@ import com.example.webviewbrowser.settings.ui.SettingsScreen
 fun AppNavHost(
     navController: NavHostController,
     modifier: Modifier = Modifier,
+    requestedDestination: String? = null,
+    onDestinationConsumed: () -> Unit = {},
 ) {
     val activity = LocalContext.current as ComponentActivity
     val browserViewModel: BrowserViewModel = hiltViewModel(activity)
@@ -34,6 +37,13 @@ fun AppNavHost(
         browserViewModel.onIntent(BrowserIntent.SubmitAddress(url))
         navController.navigate(AppRoutes.BROWSER) {
             popUpTo(AppRoutes.BROWSER) { inclusive = true }
+        }
+    }
+
+    LaunchedEffect(requestedDestination) {
+        requestedDestination?.let { route ->
+            navController.navigate(route) { launchSingleTop = true }
+            onDestinationConsumed()
         }
     }
 
